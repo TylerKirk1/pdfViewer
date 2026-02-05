@@ -1,0 +1,23 @@
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Env files
+.env
+.env.*
+
+# Common build outputs
+dist/
+build/
+out/
+coverage/
+
+# Dependencies (common)
+node_modules/
+vendor/
+
