@@ -21,3 +21,5 @@ coverage/
 node_modules/
 vendor/
 
+# Vite
+.vite/

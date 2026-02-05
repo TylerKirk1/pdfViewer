@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/ui/App.tsx","./src/ui/ViewerShell.tsx","./src/ui/components/Button.tsx","./src/ui/components/Icon.tsx","./src/ui/components/Slider.tsx","./src/ui/pdf/loadPdf.ts","./src/ui/pdf/pdfjs.ts","./src/ui/pdf/renderPage.ts","./src/ui/state/store.ts","./src/ui/theme/ThemePanel.tsx","./src/ui/theme/applyTheme.ts","./src/ui/theme/theme.ts"],"version":"5.9.3"}
