@@ -9,6 +9,18 @@ type Props = {
 
 const presets: Array<{ name: string; theme: Theme }> = [
   {
+    name: "Light",
+    theme: {
+      accent: "#2A6BFF",
+      surface: "#FFFFFF",
+      background: "#F4F7FB",
+      text: "#0B1220",
+      mutedText: "#5B6B83",
+      panel: "#FFFFFF",
+      border: "rgba(11,18,32,0.10)"
+    }
+  },
+  {
     name: "Electric Blue",
     theme: {
       accent: "#2A6BFF",
@@ -55,7 +67,9 @@ export function ThemePanel({ onClose }: Props) {
   const setTheme = useViewerStore((s) => s.setTheme);
 
   const [accent, setAccent] = useState(theme.accent);
-  const canApply = useMemo(() => safeHex(accent) !== null, [accent]);
+  const [background, setBackground] = useState(theme.background);
+  const [surface, setSurface] = useState(theme.surface);
+  const canApply = useMemo(() => safeHex(accent) !== null && safeHex(background) !== null && safeHex(surface) !== null, [accent, background, surface]);
 
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-label="Theme">
@@ -102,14 +116,36 @@ export function ThemePanel({ onClose }: Props) {
               disabled={!canApply}
               onClick={() => {
                 const hex = safeHex(accent);
-                if (!hex) return;
-                setTheme({ ...theme, accent: hex });
+                const bg = safeHex(background);
+                const surf = safeHex(surface);
+                if (!hex || !bg || !surf) return;
+                setTheme({ ...theme, accent: hex, background: bg, surface: surf });
               }}
             >
               Apply
             </button>
           </div>
           <div className="hint">Hex only (example: #2A6BFF).</div>
+        </div>
+
+        <div className="modal__section">
+          <div className="modal__label">Background + surface</div>
+          <div className="fieldRow">
+            <input
+              className="field"
+              value={background}
+              onChange={(e) => setBackground(e.target.value)}
+              aria-label="Background hex color"
+              placeholder="#0B1220"
+            />
+            <input
+              className="field"
+              value={surface}
+              onChange={(e) => setSurface(e.target.value)}
+              aria-label="Surface hex color"
+              placeholder="#0F172A"
+            />
+          </div>
         </div>
 
         <div className="modal__footer">
@@ -126,4 +162,3 @@ export function ThemePanel({ onClose }: Props) {
     </div>
   );
 }
-

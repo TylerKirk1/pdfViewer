@@ -6,6 +6,8 @@ import { useViewerStore } from "./state/store";
 import { Button } from "./components/Button";
 import { Slider } from "./components/Slider";
 import { ThemePanel } from "./theme/ThemePanel";
+import { Sidebar } from "./sidebar/Sidebar";
+import { useResizeObserver } from "./hooks/useResizeObserver";
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
@@ -17,6 +19,7 @@ export function ViewerShell() {
   const numPages = useViewerStore((s) => s.numPages);
   const scale = useViewerStore((s) => s.scale);
   const rotation = useViewerStore((s) => s.rotation);
+  const fitMode = useViewerStore((s) => s.fitMode);
   const isSidebarOpen = useViewerStore((s) => s.isSidebarOpen);
 
   const setSource = useViewerStore((s) => s.setSource);
@@ -24,14 +27,18 @@ export function ViewerShell() {
   const setPageNumber = useViewerStore((s) => s.setPageNumber);
   const setScale = useViewerStore((s) => s.setScale);
   const setRotation = useViewerStore((s) => s.setRotation);
+  const setFitMode = useViewerStore((s) => s.setFitMode);
   const toggleSidebar = useViewerStore((s) => s.toggleSidebar);
   const resetView = useViewerStore((s) => s.resetView);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const viewportRect = useResizeObserver(viewportRef);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isThemeOpen, setIsThemeOpen] = useState(false);
+  const [fitScale, setFitScale] = useState<number | null>(null);
 
   const title = useMemo(() => {
     if (source.kind === "file") return source.name;
@@ -63,6 +70,40 @@ export function ViewerShell() {
     };
   }, [source, setNumPages]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!doc) {
+        setFitScale(null);
+        return;
+      }
+      if (fitMode === "free") {
+        setFitScale(null);
+        return;
+      }
+      if (!viewportRect) return;
+      const page = await doc.getPage(clamp(pageNumber, 1, doc.numPages));
+      if (cancelled) return;
+      const v1 = page.getViewport({ scale: 1, rotation });
+      const pad = 44; // viewer padding + paper padding
+      const availW = Math.max(240, viewportRect.width - pad);
+      const availH = Math.max(240, viewportRect.height - pad);
+      const sWidth = availW / v1.width;
+      if (fitMode === "width") {
+        setFitScale(clamp(Number(sWidth.toFixed(3)), 0.25, 5));
+        return;
+      }
+      const sHeight = availH / v1.height;
+      const sPage = Math.min(sWidth, sHeight);
+      setFitScale(clamp(Number(sPage.toFixed(3)), 0.25, 5));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, fitMode, pageNumber, rotation, viewportRect]);
+
+  const effectiveScale = fitMode === "free" ? scale : fitScale ?? scale;
+
   const doRender = useCallback(async () => {
     if (!doc) return;
     const canvas = canvasRef.current;
@@ -71,10 +112,10 @@ export function ViewerShell() {
       doc,
       pageNumber: clamp(pageNumber, 1, doc.numPages),
       canvas,
-      scale,
+      scale: effectiveScale,
       rotation
     });
-  }, [doc, pageNumber, scale, rotation]);
+  }, [doc, pageNumber, effectiveScale, rotation]);
 
   useEffect(() => {
     void doRender();
@@ -117,18 +158,18 @@ export function ViewerShell() {
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
-        setScale(clamp(Number((scale + 0.1).toFixed(2)), 0.5, 3));
+        setScale(clamp(Number((effectiveScale + 0.1).toFixed(2)), 0.5, 3));
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "-") {
         e.preventDefault();
-        setScale(clamp(Number((scale - 0.1).toFixed(2)), 0.5, 3));
+        setScale(clamp(Number((effectiveScale - 0.1).toFixed(2)), 0.5, 3));
       }
       if (e.key === "0" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         resetView();
       }
     },
-    [doc, pageNumber, scale, setPageNumber, setScale, resetView]
+    [doc, pageNumber, effectiveScale, setPageNumber, setScale, resetView]
   );
 
   useEffect(() => {
@@ -182,21 +223,35 @@ export function ViewerShell() {
         </div>
         <div className="topbar__right">
           <div className="zoom">
-            <Button onClick={() => setScale(clamp(Number((scale - 0.1).toFixed(2)), 0.5, 3))} aria-label="Zoom out">
+            <Button onClick={() => setScale(clamp(Number((effectiveScale - 0.1).toFixed(2)), 0.5, 3))} aria-label="Zoom out">
               −
             </Button>
             <Slider
-              value={Math.round(scale * 100)}
+              value={Math.round(effectiveScale * 100)}
               min={50}
               max={300}
               step={5}
               aria-label="Zoom"
               onChange={(v) => setScale(Number((v / 100).toFixed(2)))}
             />
-            <Button onClick={() => setScale(clamp(Number((scale + 0.1).toFixed(2)), 0.5, 3))} aria-label="Zoom in">
+            <Button onClick={() => setScale(clamp(Number((effectiveScale + 0.1).toFixed(2)), 0.5, 3))} aria-label="Zoom in">
               +
             </Button>
           </div>
+          <Button
+            onClick={() => setFitMode(fitMode === "width" ? "free" : "width")}
+            aria-label="Fit to width"
+            className={fitMode === "width" ? "btn--on" : ""}
+          >
+            ↔
+          </Button>
+          <Button
+            onClick={() => setFitMode(fitMode === "page" ? "free" : "page")}
+            aria-label="Fit to page"
+            className={fitMode === "page" ? "btn--on" : ""}
+          >
+            ⤢
+          </Button>
           <Button
             onClick={() => setRotation(((rotation + 90) % 360) as 0 | 90 | 180 | 270)}
             aria-label="Rotate"
@@ -215,25 +270,11 @@ export function ViewerShell() {
 
       <div className="body">
         {isSidebarOpen ? (
-          <aside className="sidebar">
-            <div className="sidebar__section">
-              <div className="sidebar__title">Tips</div>
-              <div className="sidebar__text">
-                Drag and drop a PDF here, or click <span className="kbd">Open</span>.
-              </div>
-              <div className="sidebar__text">
-                Keys: <span className="kbd">←</span>/<span className="kbd">→</span> page,{" "}
-                <span className="kbd">Ctrl</span>+<span className="kbd">+</span>/<span className="kbd">−</span> zoom.
-              </div>
-            </div>
-            {loadError ? (
-              <div className="sidebar__error">{loadError}</div>
-            ) : null}
-          </aside>
+          <Sidebar doc={doc} loadError={loadError} />
         ) : null}
 
-        <main className="viewer">
-          <div className="paper">
+        <main className="viewer" ref={viewportRef}>
+          <div className="paper" aria-label="PDF page">
             {isLoading ? <div className="status">Loading…</div> : null}
             {!isLoading && source.kind === "none" ? (
               <div className="drop">
@@ -242,6 +283,7 @@ export function ViewerShell() {
               </div>
             ) : null}
             <canvas ref={canvasRef} className="canvas" />
+            {doc ? <div className="corner">{Math.round(effectiveScale * 100)}%</div> : null}
           </div>
         </main>
       </div>
@@ -250,4 +292,3 @@ export function ViewerShell() {
     </div>
   );
 }
-

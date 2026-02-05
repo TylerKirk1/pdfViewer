@@ -13,14 +13,18 @@ export type ViewerState = {
   numPages: number;
   scale: number;
   rotation: 0 | 90 | 180 | 270;
+  fitMode: "free" | "width" | "page";
   theme: Theme;
   isSidebarOpen: boolean;
+  sidebarTab: "thumbs" | "outline" | "search";
   setSource: (s: PdfSource) => void;
   setPageNumber: (n: number) => void;
   setNumPages: (n: number) => void;
   setScale: (n: number) => void;
   setRotation: (r: ViewerState["rotation"]) => void;
+  setFitMode: (m: ViewerState["fitMode"]) => void;
   toggleSidebar: () => void;
+  setSidebarTab: (t: ViewerState["sidebarTab"]) => void;
   setTheme: (t: Theme) => void;
   resetView: () => void;
 };
@@ -43,13 +47,16 @@ export const useViewerStore = create<ViewerState>()(
       numPages: 0,
       scale: 1.1,
       rotation: 0,
+      fitMode: "free",
       theme: defaultTheme,
       isSidebarOpen: true,
+      sidebarTab: "thumbs",
       setSource: (source) =>
         set(() => ({
           source,
           pageNumber: 1,
-          numPages: 0
+          numPages: 0,
+          fitMode: "free"
         })),
       setPageNumber: (pageNumber) => set(() => ({ pageNumber })),
       setNumPages: (numPages) =>
@@ -57,14 +64,17 @@ export const useViewerStore = create<ViewerState>()(
           numPages,
           pageNumber: Math.min(get().pageNumber, Math.max(1, numPages))
         })),
-      setScale: (scale) => set(() => ({ scale })),
+      setScale: (scale) => set(() => ({ scale, fitMode: "free" })),
       setRotation: (rotation) => set(() => ({ rotation })),
+      setFitMode: (fitMode) => set(() => ({ fitMode })),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
+      setSidebarTab: (sidebarTab) => set(() => ({ sidebarTab })),
       setTheme: (theme) => set(() => ({ theme })),
       resetView: () =>
         set(() => ({
           scale: 1.1,
-          rotation: 0
+          rotation: 0,
+          fitMode: "free"
         }))
     }),
     {
@@ -72,9 +82,9 @@ export const useViewerStore = create<ViewerState>()(
       partialize: (s) => ({
         // Keep it minimal: theme + layout prefs only.
         theme: s.theme,
-        isSidebarOpen: s.isSidebarOpen
+        isSidebarOpen: s.isSidebarOpen,
+        sidebarTab: s.sidebarTab
       })
     }
   )
 );
-

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "composite": true,
     "target": "ES2022",
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -11,8 +12,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
+    "tsBuildInfoFile": "./.cache/tsconfig.app.tsbuildinfo",
     "types": ["vite/client"]
   },
   "include": ["src"]
 }
-

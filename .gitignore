@@ -16,6 +16,7 @@ dist/
 build/
 out/
 coverage/
+.cache/
 
 # Dependencies (common)
 node_modules/
@@ -23,3 +24,10 @@ vendor/
 
 # Vite
 .vite/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Avoid stray tsc emits (we typecheck with noEmit)
+vite.config.js
+vite.config.d.ts
