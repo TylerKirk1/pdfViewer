@@ -8,6 +8,7 @@ import { Slider } from "./components/Slider";
 import { ThemePanel } from "./theme/ThemePanel";
 import { Sidebar } from "./sidebar/Sidebar";
 import { useResizeObserver } from "./hooks/useResizeObserver";
+import { MinimalLinkService } from "./pdf/linkService";
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
@@ -20,6 +21,7 @@ export function ViewerShell() {
   const scale = useViewerStore((s) => s.scale);
   const rotation = useViewerStore((s) => s.rotation);
   const fitMode = useViewerStore((s) => s.fitMode);
+  const highlightQuery = useViewerStore((s) => s.highlightQuery);
   const isSidebarOpen = useViewerStore((s) => s.isSidebarOpen);
 
   const setSource = useViewerStore((s) => s.setSource);
@@ -32,6 +34,8 @@ export function ViewerShell() {
   const resetView = useViewerStore((s) => s.resetView);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
+  const annotationLayerRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const viewportRect = useResizeObserver(viewportRef);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -39,6 +43,16 @@ export function ViewerShell() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isThemeOpen, setIsThemeOpen] = useState(false);
   const [fitScale, setFitScale] = useState<number | null>(null);
+  const [linkService] = useState(
+    () =>
+      new MinimalLinkService({
+        doc: null,
+        setPage: setPageNumber,
+        getPage: () => useViewerStore.getState().pageNumber,
+        getRotation: () => useViewerStore.getState().rotation
+      })
+  );
+  const annotationStorage = null;
 
   const title = useMemo(() => {
     if (source.kind === "file") return source.name;
@@ -55,10 +69,12 @@ export function ViewerShell() {
         const loaded = await loadPdf(source);
         if (cancelled) return;
         setDoc(loaded);
+        linkService.setDocument(loaded);
         setNumPages(loaded?.numPages ?? 0);
       } catch (e) {
         if (cancelled) return;
         setDoc(null);
+        linkService.setDocument(null);
         setNumPages(0);
         setLoadError(e instanceof Error ? e.message : "Failed to load PDF");
       } finally {
@@ -68,7 +84,7 @@ export function ViewerShell() {
     return () => {
       cancelled = true;
     };
-  }, [source, setNumPages]);
+  }, [source, setNumPages, linkService]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,10 +128,15 @@ export function ViewerShell() {
       doc,
       pageNumber: clamp(pageNumber, 1, doc.numPages),
       canvas,
+      textLayer: textLayerRef.current,
+      annotationLayer: annotationLayerRef.current,
       scale: effectiveScale,
-      rotation
+      rotation,
+      highlightQuery,
+      linkService,
+      annotationStorage
     });
-  }, [doc, pageNumber, effectiveScale, rotation]);
+  }, [doc, pageNumber, effectiveScale, rotation, highlightQuery, linkService, annotationStorage]);
 
   useEffect(() => {
     void doRender();
@@ -282,7 +303,11 @@ export function ViewerShell() {
                 <div className="drop__sub">or use Open</div>
               </div>
             ) : null}
-            <canvas ref={canvasRef} className="canvas" />
+            <div className="pageStack">
+              <canvas ref={canvasRef} className="canvas" />
+              <div ref={textLayerRef} className="textLayer" aria-label="Text layer" />
+              <div ref={annotationLayerRef} className="annotationLayer" aria-label="Links and forms" />
+            </div>
             {doc ? <div className="corner">{Math.round(effectiveScale * 100)}%</div> : null}
           </div>
         </main>

@@ -14,6 +14,7 @@ export type ViewerState = {
   scale: number;
   rotation: 0 | 90 | 180 | 270;
   fitMode: "free" | "width" | "page";
+  highlightQuery: string;
   theme: Theme;
   isSidebarOpen: boolean;
   sidebarTab: "thumbs" | "outline" | "search";
@@ -23,6 +24,7 @@ export type ViewerState = {
   setScale: (n: number) => void;
   setRotation: (r: ViewerState["rotation"]) => void;
   setFitMode: (m: ViewerState["fitMode"]) => void;
+  setHighlightQuery: (q: string) => void;
   toggleSidebar: () => void;
   setSidebarTab: (t: ViewerState["sidebarTab"]) => void;
   setTheme: (t: Theme) => void;
@@ -48,6 +50,7 @@ export const useViewerStore = create<ViewerState>()(
       scale: 1.1,
       rotation: 0,
       fitMode: "free",
+      highlightQuery: "",
       theme: defaultTheme,
       isSidebarOpen: true,
       sidebarTab: "thumbs",
@@ -56,7 +59,8 @@ export const useViewerStore = create<ViewerState>()(
           source,
           pageNumber: 1,
           numPages: 0,
-          fitMode: "free"
+          fitMode: "free",
+          highlightQuery: ""
         })),
       setPageNumber: (pageNumber) => set(() => ({ pageNumber })),
       setNumPages: (numPages) =>
@@ -67,6 +71,7 @@ export const useViewerStore = create<ViewerState>()(
       setScale: (scale) => set(() => ({ scale, fitMode: "free" })),
       setRotation: (rotation) => set(() => ({ rotation })),
       setFitMode: (fitMode) => set(() => ({ fitMode })),
+      setHighlightQuery: (highlightQuery) => set(() => ({ highlightQuery })),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
       setSidebarTab: (sidebarTab) => set(() => ({ sidebarTab })),
       setTheme: (theme) => set(() => ({ theme })),
@@ -74,7 +79,8 @@ export const useViewerStore = create<ViewerState>()(
         set(() => ({
           scale: 1.1,
           rotation: 0,
-          fitMode: "free"
+          fitMode: "free",
+          highlightQuery: ""
         }))
     }),
     {

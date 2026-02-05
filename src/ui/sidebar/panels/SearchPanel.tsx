@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { searchDocument, type SearchResult } from "../../pdf/search";
+import { useViewerStore } from "../../state/store";
 
 type Props = {
   doc: PDFDocumentProxy | null;
@@ -12,6 +13,7 @@ export function SearchPanel({ doc, onSelectPage }: Props) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const abortRef = useRef({ aborted: false });
+  const setHighlightQuery = useViewerStore((s) => s.setHighlightQuery);
 
   useEffect(() => {
     return () => {
@@ -25,12 +27,14 @@ export function SearchPanel({ doc, onSelectPage }: Props) {
     setResults([]);
     setIsSearching(false);
     abortRef.current = { aborted: false };
-  }, [doc]);
+    setHighlightQuery("");
+  }, [doc, setHighlightQuery]);
 
   const totalMatches = useMemo(() => results.reduce((acc, r) => acc + r.matchCount, 0), [results]);
 
   async function runSearch() {
     if (!doc) return;
+    setHighlightQuery(query.trim());
     abortRef.current.aborted = true;
     abortRef.current = { aborted: false };
     const localSignal = abortRef.current;
@@ -95,4 +99,3 @@ export function SearchPanel({ doc, onSelectPage }: Props) {
     </div>
   );
 }
-

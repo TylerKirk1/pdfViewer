@@ -3,10 +3,10 @@
 This file is the running backlog for the pdfViewer project.
 
 ## In Progress
-- Polish: search UX (highlighting) + better outline interactions
+- Search UX polish: next/prev match + clear highlights
+- Code-splitting/perf: split PDF.js heavy code into a lazy chunk
 
 ## Backlog
-- Text layer + search highlights (real highlight, not just result list)
 - Continuous scroll mode (single page vs scroll)
 - “Fit to width” and “fit to page” modes: better heuristics + dedicated UI state
 - Recent files list (local only) with quick reopen
@@ -27,3 +27,5 @@ This file is the running backlog for the pdfViewer project.
 - Fit-to-width and fit-to-page view modes
 - Removed background gradients for a cleaner modern look
 - Vitest + Testing Library tests
+- Text layer for selection + on-page search highlighting
+- Annotation layer for links/forms (PDF annotations)

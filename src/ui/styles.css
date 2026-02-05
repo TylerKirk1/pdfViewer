@@ -246,6 +246,61 @@ body {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.pageStack {
+  position: relative;
+  display: inline-block;
+}
+
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 2;
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.textLayer .hl {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 4px;
+  margin: -1px;
+  padding: 1px;
+}
+
+.annotationLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.annotationLayer a {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+
+.annotationLayer a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, white);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .status {
   position: absolute;
   top: 10px;
