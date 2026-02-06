@@ -285,6 +285,10 @@ body {
   padding: 1px;
 }
 
+.textLayer .hl.hl--active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 65%, white);
+}
+
 .annotationLayer {
   position: absolute;
   inset: 0;
@@ -486,7 +490,7 @@ body {
 .search {
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   gap: 10px;
 }
 
@@ -498,6 +502,27 @@ body {
 .search__meta {
   font-size: 12px;
   color: var(--muted);
+}
+
+.searchMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.search__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search__actions .btn {
+  flex: 1 1 calc(50% - 8px);
+  height: 34px;
+  border-radius: 12px;
+  font-size: 12px;
+  padding: 0 10px;
 }
 
 .search__results {

@@ -3,11 +3,9 @@
 This file is the running backlog for the pdfViewer project.
 
 ## In Progress
-- Search UX polish: next/prev match + clear highlights
-- Code-splitting/perf: split PDF.js heavy code into a lazy chunk
+- Continuous scroll mode (single page vs scroll)
 
 ## Backlog
-- Continuous scroll mode (single page vs scroll)
 - “Fit to width” and “fit to page” modes: better heuristics + dedicated UI state
 - Recent files list (local only) with quick reopen
 - Basic annotations: highlight/underline/notes (stored locally first)
@@ -29,3 +27,5 @@ This file is the running backlog for the pdfViewer project.
 - Vitest + Testing Library tests
 - Text layer for selection + on-page search highlighting
 - Annotation layer for links/forms (PDF annotations)
+- Search navigation (prev/next match on page, prev/next result page, clear)
+- Lazy-loaded PDF.js to reduce initial bundle size

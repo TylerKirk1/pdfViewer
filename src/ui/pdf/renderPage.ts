@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import { pdfjsLib } from "./pdfjs";
+import { getPdfjs } from "./pdfjs";
 import { applyTextHighlights } from "./highlight";
 
 export type RenderOpts = {
@@ -20,6 +20,7 @@ export type RenderOpts = {
 };
 
 export async function renderPage(opts: RenderOpts) {
+  const pdfjsLib = await getPdfjs();
   const page = await opts.doc.getPage(opts.pageNumber);
   const viewport = page.getViewport({ scale: opts.scale, rotation: opts.rotation });
 

@@ -27,6 +27,9 @@ function resetStore() {
     rotation: 0,
     fitMode: "free",
     highlightQuery: "",
+    highlightCursor: 0,
+    highlightCount: 0,
+    highlightScrollNonce: 0,
     theme: {
       accent: "#2A6BFF",
       surface: "#0F172A",

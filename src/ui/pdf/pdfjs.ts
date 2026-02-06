@@ -1,13 +1,23 @@
-import * as pdfjsLib from "pdfjs-dist";
+// Lazy-load PDF.js so the initial app bundle stays small.
+// Vite will split this into a separate chunk.
 
-// Use the worker shipped by pdfjs-dist and let Vite bundle it.
-import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?worker";
+type PdfjsModule = typeof import("pdfjs-dist");
 
-// In test/Node environments there is no global `Worker`. The viewer code paths
-// are mocked there, so it's safe to skip worker setup.
-if (typeof Worker !== "undefined") {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (pdfjsLib as any).GlobalWorkerOptions.workerPort = new pdfWorker();
+let cached: PdfjsModule | null = null;
+let workerReady = false;
+
+export async function getPdfjs() {
+  if (cached) return cached;
+  const mod = (await import("pdfjs-dist")) as PdfjsModule;
+  cached = mod;
+
+  if (!workerReady && typeof Worker !== "undefined") {
+    const { default: PdfWorker } = await import("pdfjs-dist/build/pdf.worker.mjs?worker");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mod as any).GlobalWorkerOptions.workerPort = new PdfWorker();
+    workerReady = true;
+  }
+
+  return mod;
 }
 
-export { pdfjsLib };

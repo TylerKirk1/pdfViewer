@@ -8,12 +8,22 @@ type Props = {
   onSelectPage: (n: number) => void;
 };
 
+function clamp(n: number, lo: number, hi: number) {
+  return Math.min(hi, Math.max(lo, n));
+}
+
 export function SearchPanel({ doc, onSelectPage }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const abortRef = useRef({ aborted: false });
   const setHighlightQuery = useViewerStore((s) => s.setHighlightQuery);
+  const highlightQuery = useViewerStore((s) => s.highlightQuery);
+  const highlightCount = useViewerStore((s) => s.highlightCount);
+  const highlightCursor = useViewerStore((s) => s.highlightCursor);
+  const setHighlightCursor = useViewerStore((s) => s.setHighlightCursor);
+  const bumpHighlightScrollNonce = useViewerStore((s) => s.bumpHighlightScrollNonce);
+  const currentPage = useViewerStore((s) => s.pageNumber);
 
   useEffect(() => {
     return () => {
@@ -27,14 +37,25 @@ export function SearchPanel({ doc, onSelectPage }: Props) {
     setResults([]);
     setIsSearching(false);
     abortRef.current = { aborted: false };
-    setHighlightQuery("");
-  }, [doc, setHighlightQuery]);
+  }, [doc]);
+
+  useEffect(() => {
+    // If highlight is cleared elsewhere (e.g. opening a new file), keep this panel in sync.
+    if (!highlightQuery) {
+      setQuery("");
+      setResults([]);
+    }
+  }, [highlightQuery]);
 
   const totalMatches = useMemo(() => results.reduce((acc, r) => acc + r.matchCount, 0), [results]);
+  const pagesWithMatches = useMemo(() => results.map((r) => r.pageNumber), [results]);
 
   async function runSearch() {
     if (!doc) return;
-    setHighlightQuery(query.trim());
+    const q = query.trim();
+    setHighlightQuery(q);
+    setHighlightCursor(0);
+    bumpHighlightScrollNonce();
     abortRef.current.aborted = true;
     abortRef.current = { aborted: false };
     const localSignal = abortRef.current;
@@ -46,6 +67,29 @@ export function SearchPanel({ doc, onSelectPage }: Props) {
     } finally {
       if (!localSignal.aborted) setIsSearching(false);
     }
+  }
+
+  function clearSearch() {
+    setQuery("");
+    setResults([]);
+    setHighlightQuery("");
+  }
+
+  function gotoPrevNextResult(dir: -1 | 1) {
+    if (!pagesWithMatches.length) return;
+    const idx = pagesWithMatches.indexOf(currentPage);
+    const nextIdx = idx === -1 ? 0 : (idx + dir + pagesWithMatches.length) % pagesWithMatches.length;
+    const targetPage = pagesWithMatches[nextIdx]!;
+    onSelectPage(targetPage);
+    setHighlightCursor(0);
+    bumpHighlightScrollNonce();
+  }
+
+  function gotoPrevNextHighlight(dir: -1 | 1) {
+    if (highlightCount <= 0) return;
+    const next = (highlightCursor + dir + highlightCount) % highlightCount;
+    setHighlightCursor(next);
+    bumpHighlightScrollNonce();
   }
 
   if (!doc) {
@@ -77,17 +121,48 @@ export function SearchPanel({ doc, onSelectPage }: Props) {
 
       <div className="search__meta">
         {results.length ? (
-          <span>
-            {totalMatches} match{totalMatches === 1 ? "" : "es"} on {results.length} page{results.length === 1 ? "" : "s"}
-          </span>
+          <div className="searchMeta">
+            <span>
+              {totalMatches} match{totalMatches === 1 ? "" : "es"} on {results.length} page{results.length === 1 ? "" : "s"}
+            </span>
+            <span className="muted">
+              This page: {highlightCount ? `${clamp(highlightCursor + 1, 1, highlightCount)}/${highlightCount}` : "0"}
+            </span>
+          </div>
         ) : (
           <span className="muted">Tip: Enter a phrase and press Enter.</span>
         )}
       </div>
 
+      <div className="search__actions" aria-label="Search navigation">
+        <button className="btn btn--ghost" onClick={() => gotoPrevNextHighlight(-1)} disabled={highlightCount <= 1} aria-label="Previous match on page">
+          ◀ Match
+        </button>
+        <button className="btn btn--ghost" onClick={() => gotoPrevNextHighlight(1)} disabled={highlightCount <= 1} aria-label="Next match on page">
+          Match ▶
+        </button>
+        <button className="btn btn--ghost" onClick={() => gotoPrevNextResult(-1)} disabled={!pagesWithMatches.length} aria-label="Previous result page">
+          ◀ Page
+        </button>
+        <button className="btn btn--ghost" onClick={() => gotoPrevNextResult(1)} disabled={!pagesWithMatches.length} aria-label="Next result page">
+          Page ▶
+        </button>
+        <button className="btn btn--ghost" onClick={clearSearch} disabled={!query && !results.length} aria-label="Clear search">
+          Clear
+        </button>
+      </div>
+
       <div className="search__results">
         {results.map((r) => (
-          <button key={r.pageNumber} className="result" onClick={() => onSelectPage(r.pageNumber)}>
+          <button
+            key={r.pageNumber}
+            className="result"
+            onClick={() => {
+              onSelectPage(r.pageNumber);
+              setHighlightCursor(0);
+              bumpHighlightScrollNonce();
+            }}
+          >
             <div className="result__top">
               <span className="result__page">Page {r.pageNumber}</span>
               <span className="result__count">{r.matchCount}</span>

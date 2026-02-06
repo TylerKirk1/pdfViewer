@@ -15,6 +15,9 @@ export type ViewerState = {
   rotation: 0 | 90 | 180 | 270;
   fitMode: "free" | "width" | "page";
   highlightQuery: string;
+  highlightCursor: number;
+  highlightCount: number;
+  highlightScrollNonce: number;
   theme: Theme;
   isSidebarOpen: boolean;
   sidebarTab: "thumbs" | "outline" | "search";
@@ -25,6 +28,9 @@ export type ViewerState = {
   setRotation: (r: ViewerState["rotation"]) => void;
   setFitMode: (m: ViewerState["fitMode"]) => void;
   setHighlightQuery: (q: string) => void;
+  setHighlightCursor: (n: number) => void;
+  setHighlightCount: (n: number) => void;
+  bumpHighlightScrollNonce: () => void;
   toggleSidebar: () => void;
   setSidebarTab: (t: ViewerState["sidebarTab"]) => void;
   setTheme: (t: Theme) => void;
@@ -51,6 +57,9 @@ export const useViewerStore = create<ViewerState>()(
       rotation: 0,
       fitMode: "free",
       highlightQuery: "",
+      highlightCursor: 0,
+      highlightCount: 0,
+      highlightScrollNonce: 0,
       theme: defaultTheme,
       isSidebarOpen: true,
       sidebarTab: "thumbs",
@@ -60,7 +69,10 @@ export const useViewerStore = create<ViewerState>()(
           pageNumber: 1,
           numPages: 0,
           fitMode: "free",
-          highlightQuery: ""
+          highlightQuery: "",
+          highlightCursor: 0,
+          highlightCount: 0,
+          highlightScrollNonce: 0
         })),
       setPageNumber: (pageNumber) => set(() => ({ pageNumber })),
       setNumPages: (numPages) =>
@@ -71,7 +83,16 @@ export const useViewerStore = create<ViewerState>()(
       setScale: (scale) => set(() => ({ scale, fitMode: "free" })),
       setRotation: (rotation) => set(() => ({ rotation })),
       setFitMode: (fitMode) => set(() => ({ fitMode })),
-      setHighlightQuery: (highlightQuery) => set(() => ({ highlightQuery })),
+      setHighlightQuery: (highlightQuery) =>
+        set(() => ({
+          highlightQuery,
+          highlightCursor: 0,
+          highlightCount: 0,
+          highlightScrollNonce: 0
+        })),
+      setHighlightCursor: (highlightCursor) => set(() => ({ highlightCursor })),
+      setHighlightCount: (highlightCount) => set(() => ({ highlightCount })),
+      bumpHighlightScrollNonce: () => set((s) => ({ highlightScrollNonce: s.highlightScrollNonce + 1 })),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
       setSidebarTab: (sidebarTab) => set(() => ({ sidebarTab })),
       setTheme: (theme) => set(() => ({ theme })),
@@ -80,7 +101,10 @@ export const useViewerStore = create<ViewerState>()(
           scale: 1.1,
           rotation: 0,
           fitMode: "free",
-          highlightQuery: ""
+          highlightQuery: "",
+          highlightCursor: 0,
+          highlightCount: 0,
+          highlightScrollNonce: 0
         }))
     }),
     {

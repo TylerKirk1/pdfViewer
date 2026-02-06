@@ -22,6 +22,8 @@ export function ViewerShell() {
   const rotation = useViewerStore((s) => s.rotation);
   const fitMode = useViewerStore((s) => s.fitMode);
   const highlightQuery = useViewerStore((s) => s.highlightQuery);
+  const highlightCursor = useViewerStore((s) => s.highlightCursor);
+  const highlightScrollNonce = useViewerStore((s) => s.highlightScrollNonce);
   const isSidebarOpen = useViewerStore((s) => s.isSidebarOpen);
 
   const setSource = useViewerStore((s) => s.setSource);
@@ -30,6 +32,8 @@ export function ViewerShell() {
   const setScale = useViewerStore((s) => s.setScale);
   const setRotation = useViewerStore((s) => s.setRotation);
   const setFitMode = useViewerStore((s) => s.setFitMode);
+  const setHighlightCount = useViewerStore((s) => s.setHighlightCount);
+  const setHighlightCursor = useViewerStore((s) => s.setHighlightCursor);
   const toggleSidebar = useViewerStore((s) => s.toggleSidebar);
   const resetView = useViewerStore((s) => s.resetView);
 
@@ -120,6 +124,18 @@ export function ViewerShell() {
 
   const effectiveScale = fitMode === "free" ? scale : fitScale ?? scale;
 
+  const syncHighlights = useCallback(() => {
+    const tl = textLayerRef.current;
+    if (!tl) return;
+    const marks = Array.from(tl.querySelectorAll("mark.hl")) as HTMLElement[];
+    setHighlightCount(marks.length);
+    const cursor = marks.length > 0 ? clamp(highlightCursor, 0, marks.length - 1) : 0;
+    if (marks.length > 0 && cursor !== highlightCursor) setHighlightCursor(cursor);
+    for (let i = 0; i < marks.length; i++) {
+      marks[i].classList.toggle("hl--active", i === cursor);
+    }
+  }, [highlightCursor, setHighlightCount, setHighlightCursor]);
+
   const doRender = useCallback(async () => {
     if (!doc) return;
     const canvas = canvasRef.current;
@@ -136,11 +152,23 @@ export function ViewerShell() {
       linkService,
       annotationStorage
     });
-  }, [doc, pageNumber, effectiveScale, rotation, highlightQuery, linkService, annotationStorage]);
+    syncHighlights();
+  }, [doc, pageNumber, effectiveScale, rotation, highlightQuery, linkService, annotationStorage, syncHighlights]);
 
   useEffect(() => {
     void doRender();
   }, [doRender]);
+
+  useEffect(() => {
+    if (!highlightQuery.trim()) return;
+    const tl = textLayerRef.current;
+    if (!tl) return;
+    const marks = Array.from(tl.querySelectorAll("mark.hl")) as HTMLElement[];
+    const el = marks[highlightCursor];
+    if (!el) return;
+    // Ensure the browser has painted the new layer before scrolling.
+    requestAnimationFrame(() => el.scrollIntoView({ block: "center", inline: "nearest" }));
+  }, [highlightScrollNonce, highlightCursor, highlightQuery, pageNumber]);
 
   const openFile = useCallback(async (file: File) => {
     const data = await file.arrayBuffer();
