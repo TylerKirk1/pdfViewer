@@ -32,3 +32,6 @@ class IntersectionObserverStub {
 HTMLCanvasElement.prototype.getContext = () =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ({ setTransform() {} } as any);
+
+// jsdom doesn't implement scrolling APIs.
+HTMLElement.prototype.scrollIntoView = () => {};

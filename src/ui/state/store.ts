@@ -13,6 +13,7 @@ export type ViewerState = {
   numPages: number;
   scale: number;
   rotation: 0 | 90 | 180 | 270;
+  viewMode: "single" | "scroll";
   fitMode: "free" | "width" | "page";
   highlightQuery: string;
   highlightCursor: number;
@@ -26,6 +27,7 @@ export type ViewerState = {
   setNumPages: (n: number) => void;
   setScale: (n: number) => void;
   setRotation: (r: ViewerState["rotation"]) => void;
+  setViewMode: (m: ViewerState["viewMode"]) => void;
   setFitMode: (m: ViewerState["fitMode"]) => void;
   setHighlightQuery: (q: string) => void;
   setHighlightCursor: (n: number) => void;
@@ -55,6 +57,7 @@ export const useViewerStore = create<ViewerState>()(
       numPages: 0,
       scale: 1.1,
       rotation: 0,
+      viewMode: "single",
       fitMode: "free",
       highlightQuery: "",
       highlightCursor: 0,
@@ -68,6 +71,7 @@ export const useViewerStore = create<ViewerState>()(
           source,
           pageNumber: 1,
           numPages: 0,
+          viewMode: "single",
           fitMode: "free",
           highlightQuery: "",
           highlightCursor: 0,
@@ -82,6 +86,7 @@ export const useViewerStore = create<ViewerState>()(
         })),
       setScale: (scale) => set(() => ({ scale, fitMode: "free" })),
       setRotation: (rotation) => set(() => ({ rotation })),
+      setViewMode: (viewMode) => set(() => ({ viewMode })),
       setFitMode: (fitMode) => set(() => ({ fitMode })),
       setHighlightQuery: (highlightQuery) =>
         set(() => ({
@@ -113,7 +118,8 @@ export const useViewerStore = create<ViewerState>()(
         // Keep it minimal: theme + layout prefs only.
         theme: s.theme,
         isSidebarOpen: s.isSidebarOpen,
-        sidebarTab: s.sidebarTab
+        sidebarTab: s.sidebarTab,
+        viewMode: s.viewMode
       })
     }
   )

@@ -17,6 +17,7 @@ function resetStore() {
     numPages: 3,
     scale: 1.1,
     rotation: 0,
+    viewMode: "single",
     fitMode: "free",
     highlightQuery: "",
     highlightCursor: 0,
@@ -65,4 +66,3 @@ describe("SearchPanel", () => {
     expect(useViewerStore.getState().highlightCursor).toBe(0);
   });
 });
-

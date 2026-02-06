@@ -16,6 +16,7 @@ function resetStore() {
     numPages: 0,
     scale: 1.1,
     rotation: 0,
+    viewMode: "single",
     fitMode: "free",
     highlightQuery: "",
     highlightCursor: 0,

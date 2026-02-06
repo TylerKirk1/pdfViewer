@@ -20,6 +20,7 @@ export function ViewerShell() {
   const numPages = useViewerStore((s) => s.numPages);
   const scale = useViewerStore((s) => s.scale);
   const rotation = useViewerStore((s) => s.rotation);
+  const viewMode = useViewerStore((s) => s.viewMode);
   const fitMode = useViewerStore((s) => s.fitMode);
   const highlightQuery = useViewerStore((s) => s.highlightQuery);
   const highlightCursor = useViewerStore((s) => s.highlightCursor);
@@ -31,15 +32,13 @@ export function ViewerShell() {
   const setPageNumber = useViewerStore((s) => s.setPageNumber);
   const setScale = useViewerStore((s) => s.setScale);
   const setRotation = useViewerStore((s) => s.setRotation);
+  const setViewMode = useViewerStore((s) => s.setViewMode);
   const setFitMode = useViewerStore((s) => s.setFitMode);
   const setHighlightCount = useViewerStore((s) => s.setHighlightCount);
   const setHighlightCursor = useViewerStore((s) => s.setHighlightCursor);
   const toggleSidebar = useViewerStore((s) => s.toggleSidebar);
   const resetView = useViewerStore((s) => s.resetView);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const textLayerRef = useRef<HTMLDivElement | null>(null);
-  const annotationLayerRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const viewportRect = useResizeObserver(viewportRef);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -125,55 +124,42 @@ export function ViewerShell() {
   const effectiveScale = fitMode === "free" ? scale : fitScale ?? scale;
 
   const syncHighlights = useCallback(() => {
-    const tl = textLayerRef.current;
+    const root = viewportRef.current;
+    if (!root) return;
+    const activePageEl = viewMode === "single" ? root.querySelector("[data-single]") : root.querySelector(`[data-page="${pageNumber}"]`);
+    if (!activePageEl) return;
+    const tl = activePageEl.querySelector(".textLayer");
     if (!tl) return;
     const marks = Array.from(tl.querySelectorAll("mark.hl")) as HTMLElement[];
     setHighlightCount(marks.length);
     const cursor = marks.length > 0 ? clamp(highlightCursor, 0, marks.length - 1) : 0;
     if (marks.length > 0 && cursor !== highlightCursor) setHighlightCursor(cursor);
-    for (let i = 0; i < marks.length; i++) {
-      marks[i].classList.toggle("hl--active", i === cursor);
-    }
-  }, [highlightCursor, setHighlightCount, setHighlightCursor]);
+    for (let i = 0; i < marks.length; i++) marks[i].classList.toggle("hl--active", i === cursor);
+  }, [highlightCursor, setHighlightCount, setHighlightCursor, pageNumber, viewMode]);
 
-  const doRender = useCallback(async () => {
-    if (!doc) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    await renderPage({
-      doc,
-      pageNumber: clamp(pageNumber, 1, doc.numPages),
-      canvas,
-      textLayer: textLayerRef.current,
-      annotationLayer: annotationLayerRef.current,
-      scale: effectiveScale,
-      rotation,
-      highlightQuery,
-      linkService,
-      annotationStorage
-    });
-    syncHighlights();
-  }, [doc, pageNumber, effectiveScale, rotation, highlightQuery, linkService, annotationStorage, syncHighlights]);
-
-  useEffect(() => {
-    void doRender();
-  }, [doRender]);
+  useEffect(() => syncHighlights(), [syncHighlights]);
 
   useEffect(() => {
     if (!highlightQuery.trim()) return;
-    const tl = textLayerRef.current;
+    const root = viewportRef.current;
+    if (!root) return;
+    const activePageEl = viewMode === "single" ? root.querySelector("[data-single]") : root.querySelector(`[data-page="${pageNumber}"]`);
+    if (!activePageEl) return;
+    const tl = activePageEl.querySelector(".textLayer");
     if (!tl) return;
     const marks = Array.from(tl.querySelectorAll("mark.hl")) as HTMLElement[];
     const el = marks[highlightCursor];
     if (!el) return;
-    // Ensure the browser has painted the new layer before scrolling.
     requestAnimationFrame(() => el.scrollIntoView({ block: "center", inline: "nearest" }));
-  }, [highlightScrollNonce, highlightCursor, highlightQuery, pageNumber]);
+  }, [highlightScrollNonce, highlightCursor, highlightQuery, pageNumber, viewMode]);
 
-  const openFile = useCallback(async (file: File) => {
-    const data = await file.arrayBuffer();
-    setSource({ kind: "file", name: file.name, data });
-  }, [setSource]);
+  const openFile = useCallback(
+    async (file: File) => {
+      const data = await file.arrayBuffer();
+      setSource({ kind: "file", name: file.name, data });
+    },
+    [setSource]
+  );
 
   const onPickFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -225,6 +211,8 @@ export function ViewerShell() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onKey]);
+
+  const scrollViewerSuppressAutoScroll = useRef(false);
 
   return (
     <div className="app" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -287,6 +275,15 @@ export function ViewerShell() {
               +
             </Button>
           </div>
+
+          <Button
+            onClick={() => setViewMode(viewMode === "single" ? "scroll" : "single")}
+            aria-label="Toggle scroll mode"
+            className={viewMode === "scroll" ? "btn--on" : ""}
+          >
+            ⇵
+          </Button>
+
           <Button
             onClick={() => setFitMode(fitMode === "width" ? "free" : "width")}
             aria-label="Fit to width"
@@ -301,10 +298,7 @@ export function ViewerShell() {
           >
             ⤢
           </Button>
-          <Button
-            onClick={() => setRotation(((rotation + 90) % 360) as 0 | 90 | 180 | 270)}
-            aria-label="Rotate"
-          >
+          <Button onClick={() => setRotation(((rotation + 90) % 360) as 0 | 90 | 180 | 270)} aria-label="Rotate">
             ↻
           </Button>
           <Button onClick={() => setIsThemeOpen((v) => !v)} aria-label="Theme">
@@ -318,30 +312,270 @@ export function ViewerShell() {
       </header>
 
       <div className="body">
-        {isSidebarOpen ? (
-          <Sidebar doc={doc} loadError={loadError} />
-        ) : null}
+        {isSidebarOpen ? <Sidebar doc={doc} loadError={loadError} /> : null}
 
-        <main className="viewer" ref={viewportRef}>
-          <div className="paper" aria-label="PDF page">
-            {isLoading ? <div className="status">Loading…</div> : null}
-            {!isLoading && source.kind === "none" ? (
-              <div className="drop">
-                <div className="drop__title">Drop a PDF</div>
-                <div className="drop__sub">or use Open</div>
-              </div>
-            ) : null}
-            <div className="pageStack">
-              <canvas ref={canvasRef} className="canvas" />
-              <div ref={textLayerRef} className="textLayer" aria-label="Text layer" />
-              <div ref={annotationLayerRef} className="annotationLayer" aria-label="Links and forms" />
-            </div>
-            {doc ? <div className="corner">{Math.round(effectiveScale * 100)}%</div> : null}
-          </div>
+        <main className={`viewer ${viewMode === "scroll" ? "viewer--scroll" : ""}`} ref={viewportRef}>
+          {viewMode === "single" ? (
+            <SinglePageViewer
+              doc={doc}
+              pageNumber={pageNumber}
+              scale={effectiveScale}
+              rotation={rotation}
+              highlightQuery={highlightQuery}
+              linkService={linkService}
+              annotationStorage={annotationStorage}
+              isLoading={isLoading}
+              hasNoSource={source.kind === "none"}
+              onAfterRender={syncHighlights}
+            />
+          ) : (
+            <ScrollViewer
+              doc={doc}
+              scale={effectiveScale}
+              rotation={rotation}
+              highlightQuery={highlightQuery}
+              linkService={linkService}
+              annotationStorage={annotationStorage}
+              isLoading={isLoading}
+              hasNoSource={source.kind === "none"}
+              currentPage={pageNumber}
+              onActivePage={(n) => {
+                scrollViewerSuppressAutoScroll.current = true;
+                setPageNumber(n);
+              }}
+              onAfterRenderCurrent={syncHighlights}
+              suppressAutoScrollRef={scrollViewerSuppressAutoScroll}
+            />
+          )}
         </main>
       </div>
 
       {isThemeOpen ? <ThemePanel onClose={() => setIsThemeOpen(false)} /> : null}
+    </div>
+  );
+}
+
+function SinglePageViewer(props: {
+  doc: PDFDocumentProxy | null;
+  pageNumber: number;
+  scale: number;
+  rotation: number;
+  highlightQuery: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  linkService: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  annotationStorage: any;
+  isLoading: boolean;
+  hasNoSource: boolean;
+  onAfterRender: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
+  const annotationLayerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!props.doc) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      await renderPage({
+        doc: props.doc,
+        pageNumber: clamp(props.pageNumber, 1, props.doc.numPages),
+        canvas,
+        textLayer: textLayerRef.current,
+        annotationLayer: annotationLayerRef.current,
+        scale: props.scale,
+        rotation: props.rotation,
+        highlightQuery: props.highlightQuery,
+        linkService: props.linkService,
+        annotationStorage: props.annotationStorage
+      });
+      if (!cancelled) props.onAfterRender();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.doc, props.pageNumber, props.scale, props.rotation, props.highlightQuery, props.linkService, props.annotationStorage, props.onAfterRender]);
+
+  return (
+    <div className="paper" aria-label="PDF page" data-single>
+      {props.isLoading ? <div className="status">Loading…</div> : null}
+      {!props.isLoading && props.hasNoSource ? (
+        <div className="drop">
+          <div className="drop__title">Drop a PDF</div>
+          <div className="drop__sub">or use Open</div>
+        </div>
+      ) : null}
+      <div className="pageStack">
+        <canvas ref={canvasRef} className="canvas" />
+        <div ref={textLayerRef} className="textLayer" aria-label="Text layer" />
+        <div ref={annotationLayerRef} className="annotationLayer" aria-label="Links and forms" />
+      </div>
+      {props.doc ? <div className="corner">{Math.round(props.scale * 100)}%</div> : null}
+    </div>
+  );
+}
+
+function ScrollViewer(props: {
+  doc: PDFDocumentProxy | null;
+  scale: number;
+  rotation: number;
+  highlightQuery: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  linkService: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  annotationStorage: any;
+  isLoading: boolean;
+  hasNoSource: boolean;
+  currentPage: number;
+  onActivePage: (n: number) => void;
+  onAfterRenderCurrent: () => void;
+  suppressAutoScrollRef: React.MutableRefObject<boolean>;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const pageRefs = useRef(new Map<number, HTMLDivElement>());
+
+  const pages = useMemo(() => {
+    if (!props.doc) return [];
+    return Array.from({ length: props.doc.numPages }, (_, i) => i + 1);
+  }, [props.doc]);
+
+  useEffect(() => {
+    if (!props.doc) return;
+    if (props.suppressAutoScrollRef.current) {
+      props.suppressAutoScrollRef.current = false;
+      return;
+    }
+    const el = pageRefs.current.get(props.currentPage);
+    if (!el) return;
+    el.scrollIntoView({ block: "start", inline: "nearest" });
+  }, [props.currentPage, props.doc, props.suppressAutoScrollRef]);
+
+  return (
+    <div className="scrollStack" ref={rootRef}>
+      {props.isLoading ? <div className="status">Loading…</div> : null}
+      {!props.isLoading && props.hasNoSource ? (
+        <div className="drop">
+          <div className="drop__title">Drop a PDF</div>
+          <div className="drop__sub">or use Open</div>
+        </div>
+      ) : null}
+
+      {pages.map((n) => (
+        <ScrollPage
+          key={n}
+          root={rootRef.current}
+          register={(el) => pageRefs.current.set(n, el)}
+          doc={props.doc!}
+          pageNumber={n}
+          isCurrent={n === props.currentPage}
+          scale={props.scale}
+          rotation={props.rotation}
+          highlightQuery={props.highlightQuery}
+          linkService={props.linkService}
+          annotationStorage={props.annotationStorage}
+          onActive={() => props.onActivePage(n)}
+          onAfterRender={() => n === props.currentPage && props.onAfterRenderCurrent()}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ScrollPage(props: {
+  root: Element | null;
+  register: (el: HTMLDivElement) => void;
+  doc: PDFDocumentProxy;
+  pageNumber: number;
+  isCurrent: boolean;
+  scale: number;
+  rotation: number;
+  highlightQuery: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  linkService: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  annotationStorage: any;
+  onActive: () => void;
+  onAfterRender: () => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
+  const annotationLayerRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    props.register(el);
+  }, [props]);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        setVisible(entry.isIntersecting);
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.6) props.onActive();
+      },
+      { root: props.root, threshold: [0.01, 0.6], rootMargin: "400px 0px 400px 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [props.root, props.onActive]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!visible) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      await renderPage({
+        doc: props.doc,
+        pageNumber: props.pageNumber,
+        canvas,
+        textLayer: textLayerRef.current,
+        annotationLayer: annotationLayerRef.current,
+        scale: props.scale,
+        rotation: props.rotation,
+        highlightQuery: props.isCurrent ? props.highlightQuery : "",
+        linkService: props.linkService,
+        annotationStorage: props.annotationStorage
+      });
+      if (!cancelled) props.onAfterRender();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    visible,
+    props.doc,
+    props.pageNumber,
+    props.scale,
+    props.rotation,
+    props.highlightQuery,
+    props.isCurrent,
+    props.linkService,
+    props.annotationStorage,
+    props.onAfterRender
+  ]);
+
+  return (
+    <div
+      ref={wrapRef}
+      className={`paper paper--scroll ${props.isCurrent ? "paper--current" : ""}`}
+      data-page={props.pageNumber}
+      aria-label={`PDF page ${props.pageNumber}`}
+    >
+      <div className="pageStack">
+        <canvas ref={canvasRef} className="canvas" />
+        <div ref={textLayerRef} className="textLayer" />
+        <div ref={annotationLayerRef} className="annotationLayer" />
+      </div>
+      <div className="corner corner--page">{props.pageNumber}</div>
     </div>
   );
 }

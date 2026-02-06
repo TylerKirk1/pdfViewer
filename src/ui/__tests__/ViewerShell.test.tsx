@@ -25,6 +25,7 @@ function resetStore() {
     numPages: 0,
     scale: 1.1,
     rotation: 0,
+    viewMode: "single",
     fitMode: "free",
     highlightQuery: "",
     highlightCursor: 0,
@@ -102,5 +103,18 @@ describe("ViewerShell", () => {
 
     const input = screen.getByLabelText("Page number") as HTMLInputElement;
     expect(input.value).toBe("2");
+  });
+
+  it("renders scroll mode with multiple page containers", async () => {
+    loadPdfMock.mockResolvedValue(makeDoc(["one", "two", "three"]));
+    useViewerStore.getState().setSource({ kind: "url", url: "https://example.com/c.pdf" });
+    useViewerStore.getState().setViewMode("scroll");
+
+    render(<ViewerShell />);
+
+    await waitFor(() => expect(screen.getByLabelText("Next page")).toBeEnabled());
+    expect(screen.getByLabelText("PDF page 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("PDF page 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("PDF page 3")).toBeInTheDocument();
   });
 });

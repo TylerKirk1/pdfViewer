@@ -3,7 +3,7 @@
 This file is the running backlog for the pdfViewer project.
 
 ## In Progress
-- Continuous scroll mode (single page vs scroll)
+- Continuous scroll mode polish (render queue + smoother active page detection)
 
 ## Backlog
 - “Fit to width” and “fit to page” modes: better heuristics + dedicated UI state
@@ -29,3 +29,4 @@ This file is the running backlog for the pdfViewer project.
 - Annotation layer for links/forms (PDF annotations)
 - Search navigation (prev/next match on page, prev/next result page, clear)
 - Lazy-loaded PDF.js to reduce initial bundle size
+- Scroll mode (continuous) toggle with lazy page rendering
