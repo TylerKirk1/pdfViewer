@@ -1,0 +1,2 @@
+# PDFs contain byte offsets; never let Git rewrite their line endings.
+*.pdf binary

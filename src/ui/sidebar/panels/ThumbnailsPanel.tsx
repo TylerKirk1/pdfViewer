@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { useOnScreen } from "../../hooks/useOnScreen";
 
 type Props = {
@@ -8,104 +8,84 @@ type Props = {
   onSelectPage: (n: number) => void;
 };
 
-type ThumbState = "idle" | "rendering" | "ready" | "error";
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.min(hi, Math.max(lo, n));
-}
+const THUMB_WIDTH = 120;
 
 export function ThumbnailsPanel({ doc, pageNumber, onSelectPage }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const pages = useMemo(() => {
-    if (!doc) return [];
-    return Array.from({ length: doc.numPages }, (_, i) => i + 1);
-  }, [doc]);
+  const pages = useMemo(() => (doc ? Array.from({ length: doc.numPages }, (_, i) => i + 1) : []), [doc]);
 
-  if (!doc) {
-    return (
-      <div className="panelEmpty">
-        <div className="panelEmpty__title">Pages</div>
-        <div className="panelEmpty__hint">Open a PDF to see thumbnails.</div>
-      </div>
-    );
-  }
+  if (!doc) return <p className="panelEmpty">Open a PDF to see its pages.</p>;
 
   return (
     <div className="thumbs" ref={scrollerRef}>
       {pages.map((n) => (
-        <ThumbnailItem
-          key={n}
-          root={scrollerRef.current}
-          doc={doc}
-          pageNumber={n}
-          isActive={n === pageNumber}
-          onClick={() => onSelectPage(clamp(n, 1, doc.numPages))}
-        />
+        <ThumbnailItem key={n} doc={doc} pageNumber={n} isActive={n === pageNumber} onClick={() => onSelectPage(n)} />
       ))}
     </div>
   );
 }
 
-function ThumbnailItem(props: {
-  root: Element | null;
-  doc: PDFDocumentProxy;
-  pageNumber: number;
-  isActive: boolean;
-  onClick: () => void;
-}) {
+function ThumbnailItem(props: { doc: PDFDocumentProxy; pageNumber: number; isActive: boolean; onClick: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const itemRef = useRef<HTMLButtonElement | null>(null);
-  const isVisible = useOnScreen(itemRef, props.root);
-  const [state, setState] = useState<ThumbState>("idle");
+  const isVisible = useOnScreen(itemRef, null);
+  const rendered = useRef(false);
+  const [failed, setFailed] = useState(false);
+  const { doc, pageNumber, isActive } = props;
 
   useEffect(() => {
+    if (!isVisible || rendered.current) return;
     let cancelled = false;
+    let task: RenderTask | null = null;
     (async () => {
-      if (!isVisible) return;
-      if (state !== "idle") return;
-      setState("rendering");
-      try {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const page = await props.doc.getPage(props.pageNumber);
-        const viewport = page.getViewport({ scale: 1, rotation: 0 });
-        const targetW = 180;
-        const scale = targetW / viewport.width;
-        const v = page.getViewport({ scale, rotation: 0 });
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.floor(v.width * dpr);
-        canvas.height = Math.floor(v.height * dpr);
-        canvas.style.width = `${Math.floor(v.width)}px`;
-        canvas.style.height = `${Math.floor(v.height)}px`;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const task = page.render({ canvasContext: ctx, viewport: v });
-        await task.promise;
-        if (!cancelled) setState("ready");
-      } catch {
-        if (!cancelled) setState("error");
-      }
-    })();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const page = await doc.getPage(pageNumber);
+      if (cancelled) return;
+      const viewport = page.getViewport({ scale: THUMB_WIDTH / page.getViewport({ scale: 1 }).width });
+      const dpr = window.devicePixelRatio || 1;
+      const offscreen = document.createElement("canvas");
+      offscreen.width = Math.floor(viewport.width * dpr);
+      offscreen.height = Math.floor(viewport.height * dpr);
+      const ctx = offscreen.getContext("2d", { alpha: false });
+      if (!ctx) return;
+      task = page.render({ canvasContext: ctx, viewport, transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0] });
+      await task.promise;
+      if (cancelled) return;
+      canvas.width = offscreen.width;
+      canvas.height = offscreen.height;
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      canvas.getContext("2d")?.drawImage(offscreen, 0, 0);
+      rendered.current = true;
+    })().catch((e) => {
+      if (!cancelled && e?.name !== "RenderingCancelledException") setFailed(true);
+    });
     return () => {
       cancelled = true;
+      task?.cancel();
     };
-  }, [isVisible, props.doc, props.pageNumber, state]);
+  }, [isVisible, doc, pageNumber]);
+
+  // Keep the current page's thumbnail in view while reading.
+  useEffect(() => {
+    if (isActive) itemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isActive]);
 
   return (
     <button
       ref={itemRef}
-      className={`thumb ${props.isActive ? "thumb--active" : ""}`}
+      type="button"
+      className={`thumb ${isActive ? "thumb--active" : ""}`}
       onClick={props.onClick}
-      aria-label={`Page ${props.pageNumber}`}
+      aria-label={`Page ${pageNumber}`}
+      aria-current={isActive ? "page" : undefined}
     >
-      <div className="thumb__frame">
+      <span className="thumb__frame">
         <canvas ref={canvasRef} className="thumb__canvas" />
-        {state === "rendering" ? <div className="thumb__badge">…</div> : null}
-        {state === "error" ? <div className="thumb__badge">!</div> : null}
-      </div>
-      <div className="thumb__label">{props.pageNumber}</div>
+        {failed ? <span className="thumb__error">!</span> : null}
+      </span>
+      <span className="thumb__label">{pageNumber}</span>
     </button>
   );
 }
-

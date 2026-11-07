@@ -49,8 +49,10 @@ export class MinimalLinkService {
     try {
       const resolved = typeof dest === "string" ? await doc.getDestination(dest) : dest;
       if (!Array.isArray(resolved)) return;
+      const target = resolved[0];
+      // Destinations point at a page either by reference or by zero-based index.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const idx = await doc.getPageIndex(resolved[0] as any);
+      const idx = typeof target === "number" ? target : await doc.getPageIndex(target as any);
       this.#setPage(idx + 1);
     } catch {
       // ignore

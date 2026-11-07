@@ -1,17 +1,42 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { loadPdf } from "./pdf/loadPdf";
-import { renderPage } from "./pdf/renderPage";
-import { useViewerStore } from "./state/store";
-import { Button } from "./components/Button";
-import { Slider } from "./components/Slider";
-import { ThemePanel } from "./theme/ThemePanel";
-import { Sidebar } from "./sidebar/Sidebar";
-import { useResizeObserver } from "./hooks/useResizeObserver";
+import { describeLoadError, loadPdf } from "./pdf/loadPdf";
 import { MinimalLinkService } from "./pdf/linkService";
+import { clampScale, nextZoom, useViewerStore, type PdfSource } from "./state/store";
+import { Toolbar } from "./Toolbar";
+import { Sidebar } from "./sidebar/Sidebar";
+import { DocumentView } from "./viewer/DocumentView";
+import type { PageSize } from "./viewer/PageView";
+import { EmptyState, ErrorState, LoadingState } from "./EmptyState";
+import { useElementSize } from "./hooks/useElementSize";
+import { useMediaQuery } from "./hooks/useMediaQuery";
+
+const SAMPLE_URL = `${import.meta.env.BASE_URL}sample.pdf`;
+const NOTICE_MS = 3200;
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
+}
+
+function sourceName(source: PdfSource) {
+  if (source.kind === "file") return source.name;
+  if (source.kind === "url") {
+    const last = source.url.split(/[?#]/)[0]!.split("/").pop() ?? "";
+    try {
+      return decodeURIComponent(last) || "Document";
+    } catch {
+      return last || "Document";
+    }
+  }
+  return "";
+}
+
+function isPdfFile(file: File) {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']");
 }
 
 export function ViewerShell() {
@@ -19,9 +44,10 @@ export function ViewerShell() {
   const pageNumber = useViewerStore((s) => s.pageNumber);
   const numPages = useViewerStore((s) => s.numPages);
   const scale = useViewerStore((s) => s.scale);
+  const fitMode = useViewerStore((s) => s.fitMode);
   const rotation = useViewerStore((s) => s.rotation);
   const viewMode = useViewerStore((s) => s.viewMode);
-  const fitMode = useViewerStore((s) => s.fitMode);
+  const theme = useViewerStore((s) => s.theme);
   const highlightQuery = useViewerStore((s) => s.highlightQuery);
   const highlightCursor = useViewerStore((s) => s.highlightCursor);
   const highlightScrollNonce = useViewerStore((s) => s.highlightScrollNonce);
@@ -31,551 +57,386 @@ export function ViewerShell() {
   const setNumPages = useViewerStore((s) => s.setNumPages);
   const setPageNumber = useViewerStore((s) => s.setPageNumber);
   const setScale = useViewerStore((s) => s.setScale);
-  const setRotation = useViewerStore((s) => s.setRotation);
-  const setViewMode = useViewerStore((s) => s.setViewMode);
   const setFitMode = useViewerStore((s) => s.setFitMode);
+  const rotateClockwise = useViewerStore((s) => s.rotateClockwise);
+  const setViewMode = useViewerStore((s) => s.setViewMode);
   const setHighlightCount = useViewerStore((s) => s.setHighlightCount);
   const setHighlightCursor = useViewerStore((s) => s.setHighlightCursor);
   const toggleSidebar = useViewerStore((s) => s.toggleSidebar);
+  const cycleTheme = useViewerStore((s) => s.cycleTheme);
+  const openSearch = useViewerStore((s) => s.openSearch);
   const resetView = useViewerStore((s) => s.resetView);
 
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const viewportRect = useResizeObserver(viewportRef);
+  const viewerRef = useRef<HTMLElement | null>(null);
+  const viewerSize = useElementSize(viewerRef);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isNarrow = useMediaQuery("(max-width: 860px)");
+  const isXs = useMediaQuery("(max-width: 560px)");
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
+  const [sizes, setSizes] = useState<PageSize[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [isThemeOpen, setIsThemeOpen] = useState(false);
-  const [fitScale, setFitScale] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [linkService] = useState(
     () =>
       new MinimalLinkService({
         doc: null,
-        setPage: setPageNumber,
+        setPage: (n) => useViewerStore.getState().setPageNumber(n),
         getPage: () => useViewerStore.getState().pageNumber,
         getRotation: () => useViewerStore.getState().rotation
       })
   );
-  const annotationStorage = null;
 
-  const title = useMemo(() => {
-    if (source.kind === "file") return source.name;
-    if (source.kind === "url") return source.url;
-    return "pdfViewer";
-  }, [source]);
+  const title = useMemo(() => sourceName(source), [source]);
 
+  // ── Loading ────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const loaded = await loadPdf(source);
-        if (cancelled) return;
+    setDoc(null);
+    setSizes([]);
+    setLoadError(null);
+    linkService.setDocument(null);
+    if (source.kind === "none") {
+      setIsLoading(false);
+      setNumPages(0);
+      return;
+    }
+    setIsLoading(true);
+    loadPdf(source)
+      .then((loaded) => {
+        if (cancelled) {
+          void loaded?.destroy?.();
+          return;
+        }
         setDoc(loaded);
         linkService.setDocument(loaded);
         setNumPages(loaded?.numPages ?? 0);
-      } catch (e) {
+      })
+      .catch((e) => {
         if (cancelled) return;
-        setDoc(null);
-        linkService.setDocument(null);
         setNumPages(0);
-        setLoadError(e instanceof Error ? e.message : "Failed to load PDF");
-      } finally {
+        setLoadError(describeLoadError(e));
+      })
+      .finally(() => {
         if (!cancelled) setIsLoading(false);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
   }, [source, setNumPages, linkService]);
 
+  // Free the worker-side copy of a document once we stop showing it.
+  useEffect(() => () => void doc?.destroy?.(), [doc]);
+
+  // Page sizes drive layout before anything is rendered. Assume every page
+  // matches page 1, then correct in the background for mixed-size documents.
   useEffect(() => {
+    if (!doc) return;
     let cancelled = false;
     (async () => {
-      if (!doc) {
-        setFitScale(null);
-        return;
-      }
-      if (fitMode === "free") {
-        setFitScale(null);
-        return;
-      }
-      if (!viewportRect) return;
-      const page = await doc.getPage(clamp(pageNumber, 1, doc.numPages));
+      const first = (await doc.getPage(1)).getViewport({ scale: 1 });
       if (cancelled) return;
-      const v1 = page.getViewport({ scale: 1, rotation });
-      const pad = 44; // viewer padding + paper padding
-      const availW = Math.max(240, viewportRect.width - pad);
-      const availH = Math.max(240, viewportRect.height - pad);
-      const sWidth = availW / v1.width;
-      if (fitMode === "width") {
-        setFitScale(clamp(Number(sWidth.toFixed(3)), 0.25, 5));
-        return;
+      const out: PageSize[] = Array.from({ length: doc.numPages }, () => ({ width: first.width, height: first.height }));
+      setSizes(out.slice());
+      for (let i = 2; i <= doc.numPages; i++) {
+        const vp = (await doc.getPage(i)).getViewport({ scale: 1 });
+        if (cancelled) return;
+        if (vp.width !== first.width || vp.height !== first.height) out[i - 1] = { width: vp.width, height: vp.height };
+        if (i % 50 === 0 || i === doc.numPages) setSizes(out.slice());
       }
-      const sHeight = availH / v1.height;
-      const sPage = Math.min(sWidth, sHeight);
-      setFitScale(clamp(Number(sPage.toFixed(3)), 0.25, 5));
-    })();
+    })().catch((e) => console.warn("Couldn't read page sizes", e));
     return () => {
       cancelled = true;
     };
-  }, [doc, fitMode, pageNumber, rotation, viewportRect]);
-
-  const effectiveScale = fitMode === "free" ? scale : fitScale ?? scale;
-
-  const syncHighlights = useCallback(() => {
-    const root = viewportRef.current;
-    if (!root) return;
-    const activePageEl = viewMode === "single" ? root.querySelector("[data-single]") : root.querySelector(`[data-page="${pageNumber}"]`);
-    if (!activePageEl) return;
-    const tl = activePageEl.querySelector(".textLayer");
-    if (!tl) return;
-    const marks = Array.from(tl.querySelectorAll("mark.hl")) as HTMLElement[];
-    setHighlightCount(marks.length);
-    const cursor = marks.length > 0 ? clamp(highlightCursor, 0, marks.length - 1) : 0;
-    if (marks.length > 0 && cursor !== highlightCursor) setHighlightCursor(cursor);
-    for (let i = 0; i < marks.length; i++) marks[i].classList.toggle("hl--active", i === cursor);
-  }, [highlightCursor, setHighlightCount, setHighlightCursor, pageNumber, viewMode]);
-
-  useEffect(() => syncHighlights(), [syncHighlights]);
+  }, [doc]);
 
   useEffect(() => {
-    if (!highlightQuery.trim()) return;
-    const root = viewportRef.current;
-    if (!root) return;
-    const activePageEl = viewMode === "single" ? root.querySelector("[data-single]") : root.querySelector(`[data-page="${pageNumber}"]`);
-    if (!activePageEl) return;
-    const tl = activePageEl.querySelector(".textLayer");
-    if (!tl) return;
-    const marks = Array.from(tl.querySelectorAll("mark.hl")) as HTMLElement[];
-    const el = marks[highlightCursor];
-    if (!el) return;
-    requestAnimationFrame(() => el.scrollIntoView({ block: "center", inline: "nearest" }));
-  }, [highlightScrollNonce, highlightCursor, highlightQuery, pageNumber, viewMode]);
+    document.title = title ? `${title} – pdfViewer` : "pdfViewer";
+  }, [title]);
 
+  // ── Zoom ───────────────────────────────────────────────────────────────
+  const fitScale = useMemo(() => {
+    if (fitMode === "free" || !viewerSize || !sizes.length) return null;
+    const size = sizes[clamp(pageNumber, 1, sizes.length) - 1]!;
+    const sideways = rotation % 180 !== 0;
+    const pageW = sideways ? size.height : size.width;
+    const pageH = sideways ? size.width : size.height;
+    const padding = isXs ? 24 : 48;
+    const byWidth = (viewerSize.width - padding) / pageW;
+    const byPage = Math.min(byWidth, (viewerSize.height - padding) / pageH);
+    const fit = fitMode === "width" ? byWidth : fitMode === "page" ? byPage : pageW > pageH ? byPage : Math.min(1.25, byWidth);
+    return clampScale(Math.floor(fit * 100) / 100);
+  }, [fitMode, viewerSize, sizes, pageNumber, rotation, isXs]);
+
+  const effectiveScale = fitScale ?? scale;
+  const effectiveScaleRef = useRef(effectiveScale);
+  effectiveScaleRef.current = effectiveScale;
+
+  const zoomStep = useCallback((dir: 1 | -1) => setScale(nextZoom(effectiveScaleRef.current, dir)), [setScale]);
+
+  const onZoomSelect = useCallback(
+    (value: string) => {
+      if (value === "auto" || value === "page" || value === "width") setFitMode(value);
+      else if (Number(value)) setScale(Number(value) / 100);
+    },
+    [setFitMode, setScale]
+  );
+
+  // Ctrl/⌘ + wheel (and trackpad pinch, which reports as ctrl+wheel) zooms the document.
+  useEffect(() => {
+    const el = viewerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !useViewerStore.getState().numPages) return;
+      e.preventDefault();
+      setScale(effectiveScaleRef.current * Math.exp(-e.deltaY * 0.0025));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [setScale]);
+
+  // ── Opening files ──────────────────────────────────────────────────────
   const openFile = useCallback(
     async (file: File) => {
-      const data = await file.arrayBuffer();
-      setSource({ kind: "file", name: file.name, data });
+      if (!isPdfFile(file)) {
+        setNotice(`“${file.name}” isn’t a PDF.`);
+        return;
+      }
+      setSource({ kind: "file", name: file.name, data: await file.arrayBuffer() });
+      setDrawerOpen(false);
     },
     [setSource]
   );
 
-  const onPickFile = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      await openFile(file);
-      e.target.value = "";
-    },
-    [openFile]
-  );
-
-  const onDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files?.[0];
-      if (!file) return;
-      if (!file.name.toLowerCase().endsWith(".pdf")) return;
-      await openFile(file);
-    },
-    [openFile]
-  );
-
-  const onKey = useCallback(
-    (e: KeyboardEvent) => {
-      if (!doc) return;
-      if (e.key === "ArrowLeft" || e.key === "PageUp") {
-        setPageNumber(clamp(pageNumber - 1, 1, doc.numPages));
-      }
-      if (e.key === "ArrowRight" || e.key === "PageDown") {
-        setPageNumber(clamp(pageNumber + 1, 1, doc.numPages));
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
-        e.preventDefault();
-        setScale(clamp(Number((effectiveScale + 0.1).toFixed(2)), 0.5, 3));
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === "-") {
-        e.preventDefault();
-        setScale(clamp(Number((effectiveScale - 0.1).toFixed(2)), 0.5, 3));
-      }
-      if (e.key === "0" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        resetView();
-      }
-    },
-    [doc, pageNumber, effectiveScale, setPageNumber, setScale, resetView]
-  );
+  const openPicker = useCallback(() => fileInputRef.current?.click(), []);
+  const openSample = useCallback(() => setSource({ kind: "url", url: SAMPLE_URL }), [setSource]);
 
   useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  // Drag a file anywhere onto the window.
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setIsDragging(true);
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setIsDragging(false);
+    };
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setIsDragging(false);
+      const file = e.dataTransfer?.files?.[0];
+      if (file) void openFile(file);
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [openFile]);
+
+  // ── Keyboard ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "o") {
+        e.preventDefault();
+        openPicker();
+        return;
+      }
+      if (e.key === "Escape" && drawerOpen) {
+        setDrawerOpen(false);
+        return;
+      }
+      const state = useViewerStore.getState();
+      if (!state.numPages) return;
+
+      if (mod && key === "f") {
+        e.preventDefault();
+        if (isNarrow) setDrawerOpen(true);
+        openSearch();
+        return;
+      }
+      if (mod && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        zoomStep(1);
+        return;
+      }
+      if (mod && (e.key === "-" || e.key === "_")) {
+        e.preventDefault();
+        zoomStep(-1);
+        return;
+      }
+      if (mod && e.key === "0") {
+        e.preventDefault();
+        resetView();
+        return;
+      }
+      if (mod || e.altKey || isTypingTarget(e.target)) return;
+
+      const go = (n: number) => {
+        e.preventDefault();
+        state.setPageNumber(n);
+      };
+      const single = state.viewMode === "single";
+      switch (e.key) {
+        case "ArrowLeft":
+          return go(state.pageNumber - 1);
+        case "ArrowRight":
+          return go(state.pageNumber + 1);
+        case "PageUp":
+          if (single) go(state.pageNumber - 1);
+          return;
+        case "PageDown":
+          if (single) go(state.pageNumber + 1);
+          return;
+        case "Home":
+          return go(1);
+        case "End":
+          return go(state.numPages);
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onKey]);
+  }, [drawerOpen, isNarrow, openPicker, openSearch, resetView, zoomStep]);
 
-  const scrollViewerSuppressAutoScroll = useRef(false);
+  // ── Search highlights ──────────────────────────────────────────────────
+  const scrolledForNonce = useRef(0);
+  const syncHighlights = useCallback(() => {
+    const root = viewerRef.current;
+    if (!root) return;
+    const s = useViewerStore.getState();
+    const pageEl = root.querySelector(`[data-page="${s.pageNumber}"]`);
+    const marks = pageEl ? Array.from(pageEl.querySelectorAll<HTMLElement>(".textLayer mark.hl")) : [];
+    if (s.highlightCount !== marks.length) setHighlightCount(marks.length);
+    const cursor = marks.length ? clamp(s.highlightCursor, 0, marks.length - 1) : 0;
+    if (marks.length && cursor !== s.highlightCursor) setHighlightCursor(cursor);
+    root.querySelectorAll(".hl--active").forEach((m) => m.classList.remove("hl--active"));
+    const active = marks[cursor];
+    if (!active) return;
+    active.classList.add("hl--active");
+    if (s.highlightScrollNonce !== scrolledForNonce.current) {
+      scrolledForNonce.current = s.highlightScrollNonce;
+      active.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+  }, [setHighlightCount, setHighlightCursor]);
+
+  useEffect(() => syncHighlights(), [syncHighlights, pageNumber, highlightCursor, highlightQuery, highlightScrollNonce]);
+
+  const onPageRendered = useCallback(
+    (n: number) => {
+      if (n === useViewerStore.getState().pageNumber) syncHighlights();
+    },
+    [syncHighlights]
+  );
+
+  // ── Layout ─────────────────────────────────────────────────────────────
+  const sidebarVisible = isNarrow ? drawerOpen : isSidebarOpen;
+  const selectPage = useCallback(
+    (n: number) => {
+      setPageNumber(n);
+      if (isNarrow) setDrawerOpen(false);
+    },
+    [isNarrow, setPageNumber]
+  );
+
+  let content: React.ReactNode;
+  if (loadError) content = <ErrorState message={loadError} onOpen={openPicker} />;
+  else if (source.kind === "none") content = <EmptyState onOpen={openPicker} onSample={openSample} />;
+  else if (isLoading || !doc || !sizes.length) content = <LoadingState />;
+  else
+    content = (
+      <DocumentView
+        doc={doc}
+        sizes={sizes}
+        viewMode={viewMode}
+        pageNumber={pageNumber}
+        scale={effectiveScale}
+        rotation={rotation}
+        highlightQuery={highlightQuery}
+        linkService={linkService}
+        scrollRef={viewerRef}
+        onActivePage={setPageNumber}
+        onPageRendered={onPageRendered}
+      />
+    );
 
   return (
-    <div className="app" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-      <header className="topbar">
-        <div className="topbar__left">
-          <Button onClick={toggleSidebar} aria-label="Toggle sidebar">
-            ☰
-          </Button>
-          <div className="title" title={title}>
-            {title}
-          </div>
-        </div>
-        <div className="topbar__center">
-          <Button
-            onClick={() => doc && setPageNumber(clamp(pageNumber - 1, 1, doc.numPages))}
-            disabled={!doc || pageNumber <= 1}
-            aria-label="Previous page"
-          >
-            ◀
-          </Button>
-          <div className="pagebox">
-            <input
-              className="pagebox__input"
-              inputMode="numeric"
-              value={doc ? String(pageNumber) : ""}
-              placeholder="–"
-              aria-label="Page number"
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (!Number.isFinite(n)) return;
-                if (!doc) return;
-                setPageNumber(clamp(n, 1, doc.numPages));
-              }}
-            />
-            <span className="pagebox__slash">/</span>
-            <span className="pagebox__total">{doc ? doc.numPages : "–"}</span>
-          </div>
-          <Button
-            onClick={() => doc && setPageNumber(clamp(pageNumber + 1, 1, doc.numPages))}
-            disabled={!doc || pageNumber >= numPages}
-            aria-label="Next page"
-          >
-            ▶
-          </Button>
-        </div>
-        <div className="topbar__right">
-          <div className="zoom">
-            <Button onClick={() => setScale(clamp(Number((effectiveScale - 0.1).toFixed(2)), 0.5, 3))} aria-label="Zoom out">
-              −
-            </Button>
-            <Slider
-              value={Math.round(effectiveScale * 100)}
-              min={50}
-              max={300}
-              step={5}
-              aria-label="Zoom"
-              onChange={(v) => setScale(Number((v / 100).toFixed(2)))}
-            />
-            <Button onClick={() => setScale(clamp(Number((effectiveScale + 0.1).toFixed(2)), 0.5, 3))} aria-label="Zoom in">
-              +
-            </Button>
-          </div>
+    <div className="app">
+      <Toolbar
+        title={title}
+        hasDoc={!!doc}
+        pageNumber={pageNumber}
+        numPages={numPages}
+        scale={effectiveScale}
+        fitMode={fitMode}
+        viewMode={viewMode}
+        theme={theme}
+        sidebarOpen={sidebarVisible}
+        onToggleSidebar={isNarrow ? () => setDrawerOpen((v) => !v) : toggleSidebar}
+        onPage={setPageNumber}
+        onZoomStep={zoomStep}
+        onZoomSelect={onZoomSelect}
+        onToggleViewMode={() => setViewMode(viewMode === "scroll" ? "single" : "scroll")}
+        onRotate={rotateClockwise}
+        onCycleTheme={cycleTheme}
+        onOpen={openPicker}
+      />
 
-          <Button
-            onClick={() => setViewMode(viewMode === "single" ? "scroll" : "single")}
-            aria-label="Toggle scroll mode"
-            className={viewMode === "scroll" ? "btn--on" : ""}
-          >
-            ⇵
-          </Button>
-
-          <Button
-            onClick={() => setFitMode(fitMode === "width" ? "free" : "width")}
-            aria-label="Fit to width"
-            className={fitMode === "width" ? "btn--on" : ""}
-          >
-            ↔
-          </Button>
-          <Button
-            onClick={() => setFitMode(fitMode === "page" ? "free" : "page")}
-            aria-label="Fit to page"
-            className={fitMode === "page" ? "btn--on" : ""}
-          >
-            ⤢
-          </Button>
-          <Button onClick={() => setRotation(((rotation + 90) % 360) as 0 | 90 | 180 | 270)} aria-label="Rotate">
-            ↻
-          </Button>
-          <Button onClick={() => setIsThemeOpen((v) => !v)} aria-label="Theme">
-            ◐
-          </Button>
-          <label className="filebtn">
-            Open
-            <input className="filebtn__input" type="file" accept="application/pdf" onChange={onPickFile} />
-          </label>
-        </div>
-      </header>
-
-      <div className="body">
-        {isSidebarOpen ? <Sidebar doc={doc} loadError={loadError} /> : null}
-
-        <main className={`viewer ${viewMode === "scroll" ? "viewer--scroll" : ""}`} ref={viewportRef}>
-          {viewMode === "single" ? (
-            <SinglePageViewer
-              doc={doc}
-              pageNumber={pageNumber}
-              scale={effectiveScale}
-              rotation={rotation}
-              highlightQuery={highlightQuery}
-              linkService={linkService}
-              annotationStorage={annotationStorage}
-              isLoading={isLoading}
-              hasNoSource={source.kind === "none"}
-              onAfterRender={syncHighlights}
-            />
-          ) : (
-            <ScrollViewer
-              doc={doc}
-              scale={effectiveScale}
-              rotation={rotation}
-              highlightQuery={highlightQuery}
-              linkService={linkService}
-              annotationStorage={annotationStorage}
-              isLoading={isLoading}
-              hasNoSource={source.kind === "none"}
-              currentPage={pageNumber}
-              onActivePage={(n) => {
-                scrollViewerSuppressAutoScroll.current = true;
-                setPageNumber(n);
-              }}
-              onAfterRenderCurrent={syncHighlights}
-              suppressAutoScrollRef={scrollViewerSuppressAutoScroll}
-            />
-          )}
+      <div className={`body ${sidebarVisible && !isNarrow ? "body--sidebar" : ""}`}>
+        {sidebarVisible && isNarrow ? <div className="scrim" onClick={() => setDrawerOpen(false)} /> : null}
+        {sidebarVisible ? <Sidebar doc={doc} onSelectPage={selectPage} drawer={isNarrow} /> : null}
+        <main className={`viewer viewer--${viewMode}`} ref={viewerRef} aria-label="Document">
+          {content}
         </main>
       </div>
 
-      {isThemeOpen ? <ThemePanel onClose={() => setIsThemeOpen(false)} /> : null}
-    </div>
-  );
-}
-
-function SinglePageViewer(props: {
-  doc: PDFDocumentProxy | null;
-  pageNumber: number;
-  scale: number;
-  rotation: number;
-  highlightQuery: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  linkService: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  annotationStorage: any;
-  isLoading: boolean;
-  hasNoSource: boolean;
-  onAfterRender: () => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const textLayerRef = useRef<HTMLDivElement | null>(null);
-  const annotationLayerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!props.doc) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      await renderPage({
-        doc: props.doc,
-        pageNumber: clamp(props.pageNumber, 1, props.doc.numPages),
-        canvas,
-        textLayer: textLayerRef.current,
-        annotationLayer: annotationLayerRef.current,
-        scale: props.scale,
-        rotation: props.rotation,
-        highlightQuery: props.highlightQuery,
-        linkService: props.linkService,
-        annotationStorage: props.annotationStorage
-      });
-      if (!cancelled) props.onAfterRender();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [props.doc, props.pageNumber, props.scale, props.rotation, props.highlightQuery, props.linkService, props.annotationStorage, props.onAfterRender]);
-
-  return (
-    <div className="paper" aria-label="PDF page" data-single>
-      {props.isLoading ? <div className="status">Loading…</div> : null}
-      {!props.isLoading && props.hasNoSource ? (
-        <div className="drop">
-          <div className="drop__title">Drop a PDF</div>
-          <div className="drop__sub">or use Open</div>
+      {isDragging ? (
+        <div className="dropOverlay" aria-hidden="true">
+          <span>Drop to open</span>
         </div>
       ) : null}
-      <div className="pageStack">
-        <canvas ref={canvasRef} className="canvas" />
-        <div ref={textLayerRef} className="textLayer" aria-label="Text layer" />
-        <div ref={annotationLayerRef} className="annotationLayer" aria-label="Links and forms" />
-      </div>
-      {props.doc ? <div className="corner">{Math.round(props.scale * 100)}%</div> : null}
-    </div>
-  );
-}
-
-function ScrollViewer(props: {
-  doc: PDFDocumentProxy | null;
-  scale: number;
-  rotation: number;
-  highlightQuery: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  linkService: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  annotationStorage: any;
-  isLoading: boolean;
-  hasNoSource: boolean;
-  currentPage: number;
-  onActivePage: (n: number) => void;
-  onAfterRenderCurrent: () => void;
-  suppressAutoScrollRef: React.MutableRefObject<boolean>;
-}) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const pageRefs = useRef(new Map<number, HTMLDivElement>());
-
-  const pages = useMemo(() => {
-    if (!props.doc) return [];
-    return Array.from({ length: props.doc.numPages }, (_, i) => i + 1);
-  }, [props.doc]);
-
-  useEffect(() => {
-    if (!props.doc) return;
-    if (props.suppressAutoScrollRef.current) {
-      props.suppressAutoScrollRef.current = false;
-      return;
-    }
-    const el = pageRefs.current.get(props.currentPage);
-    if (!el) return;
-    el.scrollIntoView({ block: "start", inline: "nearest" });
-  }, [props.currentPage, props.doc, props.suppressAutoScrollRef]);
-
-  return (
-    <div className="scrollStack" ref={rootRef}>
-      {props.isLoading ? <div className="status">Loading…</div> : null}
-      {!props.isLoading && props.hasNoSource ? (
-        <div className="drop">
-          <div className="drop__title">Drop a PDF</div>
-          <div className="drop__sub">or use Open</div>
+      {notice ? (
+        <div className="toast" role="status">
+          {notice}
         </div>
       ) : null}
 
-      {pages.map((n) => (
-        <ScrollPage
-          key={n}
-          root={rootRef.current}
-          register={(el) => pageRefs.current.set(n, el)}
-          doc={props.doc!}
-          pageNumber={n}
-          isCurrent={n === props.currentPage}
-          scale={props.scale}
-          rotation={props.rotation}
-          highlightQuery={props.highlightQuery}
-          linkService={props.linkService}
-          annotationStorage={props.annotationStorage}
-          onActive={() => props.onActivePage(n)}
-          onAfterRender={() => n === props.currentPage && props.onAfterRenderCurrent()}
-        />
-      ))}
-    </div>
-  );
-}
-
-function ScrollPage(props: {
-  root: Element | null;
-  register: (el: HTMLDivElement) => void;
-  doc: PDFDocumentProxy;
-  pageNumber: number;
-  isCurrent: boolean;
-  scale: number;
-  rotation: number;
-  highlightQuery: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  linkService: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  annotationStorage: any;
-  onActive: () => void;
-  onAfterRender: () => void;
-}) {
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const textLayerRef = useRef<HTMLDivElement | null>(null);
-  const annotationLayerRef = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    props.register(el);
-  }, [props]);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (!entry) return;
-        setVisible(entry.isIntersecting);
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.6) props.onActive();
-      },
-      { root: props.root, threshold: [0.01, 0.6], rootMargin: "400px 0px 400px 0px" }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [props.root, props.onActive]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!visible) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      await renderPage({
-        doc: props.doc,
-        pageNumber: props.pageNumber,
-        canvas,
-        textLayer: textLayerRef.current,
-        annotationLayer: annotationLayerRef.current,
-        scale: props.scale,
-        rotation: props.rotation,
-        highlightQuery: props.isCurrent ? props.highlightQuery : "",
-        linkService: props.linkService,
-        annotationStorage: props.annotationStorage
-      });
-      if (!cancelled) props.onAfterRender();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    visible,
-    props.doc,
-    props.pageNumber,
-    props.scale,
-    props.rotation,
-    props.highlightQuery,
-    props.isCurrent,
-    props.linkService,
-    props.annotationStorage,
-    props.onAfterRender
-  ]);
-
-  return (
-    <div
-      ref={wrapRef}
-      className={`paper paper--scroll ${props.isCurrent ? "paper--current" : ""}`}
-      data-page={props.pageNumber}
-      aria-label={`PDF page ${props.pageNumber}`}
-    >
-      <div className="pageStack">
-        <canvas ref={canvasRef} className="canvas" />
-        <div ref={textLayerRef} className="textLayer" />
-        <div ref={annotationLayerRef} className="annotationLayer" />
-      </div>
-      <div className="corner corner--page">{props.pageNumber}</div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        data-testid="file-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void openFile(file);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }
