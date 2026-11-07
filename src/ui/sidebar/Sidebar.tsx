@@ -1,56 +1,52 @@
-import React, { useMemo } from "react";
+import React from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { useViewerStore } from "../state/store";
-import { Button } from "../components/Button";
+import { useViewerStore, type SidebarTab } from "../state/store";
 import { ThumbnailsPanel } from "./panels/ThumbnailsPanel";
 import { OutlinePanel } from "./panels/OutlinePanel";
 import { SearchPanel } from "./panels/SearchPanel";
 
 type Props = {
   doc: PDFDocumentProxy | null;
-  loadError: string | null;
+  onSelectPage: (n: number) => void;
+  /** Render as an overlay drawer (small screens) instead of a column. */
+  drawer?: boolean;
 };
 
-export function Sidebar({ doc, loadError }: Props) {
+const TABS: Array<{ id: SidebarTab; label: string }> = [
+  { id: "thumbs", label: "Pages" },
+  { id: "outline", label: "Outline" },
+  { id: "search", label: "Search" }
+];
+
+export function Sidebar({ doc, onSelectPage, drawer }: Props) {
   const tab = useViewerStore((s) => s.sidebarTab);
   const setTab = useViewerStore((s) => s.setSidebarTab);
   const pageNumber = useViewerStore((s) => s.pageNumber);
-  const setPageNumber = useViewerStore((s) => s.setPageNumber);
-
-  const tabs = useMemo(
-    () =>
-      [
-        { id: "thumbs" as const, label: "Pages" },
-        { id: "outline" as const, label: "Outline" },
-        { id: "search" as const, label: "Search" }
-      ] as const,
-    []
-  );
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar__tabs" role="tablist" aria-label="Sidebar">
-        {tabs.map((t) => (
-          <Button
+    <aside className={`sidebar ${drawer ? "sidebar--drawer" : ""}`} aria-label="Sidebar">
+      <div className="tabs" role="tablist" aria-label="Sidebar sections">
+        {TABS.map((t) => (
+          <button
             key={t.id}
-            className={`tab ${tab === t.id ? "tab--active" : ""}`}
-            aria-label={t.label}
-            aria-pressed={tab === t.id}
+            type="button"
+            role="tab"
+            id={`tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`panel-${t.id}`}
+            className="tab"
             onClick={() => setTab(t.id)}
           >
             {t.label}
-          </Button>
+          </button>
         ))}
       </div>
 
-      <div className="sidebar__content">
-        {loadError ? <div className="sidebar__error">{loadError}</div> : null}
-
-        {tab === "thumbs" ? <ThumbnailsPanel doc={doc} pageNumber={pageNumber} onSelectPage={setPageNumber} /> : null}
-        {tab === "outline" ? <OutlinePanel doc={doc} onSelectPage={setPageNumber} /> : null}
-        {tab === "search" ? <SearchPanel doc={doc} onSelectPage={setPageNumber} /> : null}
+      <div className="panel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "thumbs" ? <ThumbnailsPanel doc={doc} pageNumber={pageNumber} onSelectPage={onSelectPage} /> : null}
+        {tab === "outline" ? <OutlinePanel doc={doc} onSelectPage={onSelectPage} /> : null}
+        {tab === "search" ? <SearchPanel doc={doc} onSelectPage={onSelectPage} /> : null}
       </div>
     </aside>
   );
 }
-
