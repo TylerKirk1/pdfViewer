@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 
-export type Size = { width: number; height: number };
+type Size = { width: number; height: number };
 
 /** Inner size (clientWidth/Height, so excluding scrollbars) of an element. */
 export function useElementSize<T extends HTMLElement>(ref: React.RefObject<T>) {

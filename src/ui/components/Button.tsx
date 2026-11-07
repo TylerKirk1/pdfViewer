@@ -2,7 +2,7 @@ import React from "react";
 import { Icon, type IconName } from "./Icon";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "default" | "primary" | "ghost";
+  variant?: "default" | "primary";
 };
 
 export function Button({ variant = "default", className, type = "button", ...props }: ButtonProps) {

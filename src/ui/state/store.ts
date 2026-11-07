@@ -13,8 +13,8 @@ export type ViewMode = "single" | "scroll";
 export type FitMode = "free" | "auto" | "width" | "page";
 export type SidebarTab = "thumbs" | "outline" | "search";
 
-export const MIN_SCALE = 0.25;
-export const MAX_SCALE = 4;
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 4;
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 
 export function clampScale(scale: number) {
@@ -50,7 +50,6 @@ export type ViewerState = {
   setNumPages: (n: number) => void;
   setScale: (n: number) => void;
   setFitMode: (m: FitMode) => void;
-  setRotation: (r: Rotation) => void;
   rotateClockwise: () => void;
   setViewMode: (m: ViewMode) => void;
   setHighlightQuery: (q: string) => void;
@@ -60,7 +59,6 @@ export type ViewerState = {
   openSearch: () => void;
   toggleSidebar: () => void;
   setSidebarTab: (t: SidebarTab) => void;
-  setTheme: (t: ThemeMode) => void;
   cycleTheme: () => void;
   resetView: () => void;
 };
@@ -106,7 +104,6 @@ export const useViewerStore = create<ViewerState>()(
         })),
       setScale: (scale) => set(() => ({ scale: clampScale(scale), fitMode: "free" })),
       setFitMode: (fitMode) => set(() => ({ fitMode })),
-      setRotation: (rotation) => set(() => ({ rotation })),
       rotateClockwise: () => set((s) => ({ rotation: ((s.rotation + 90) % 360) as Rotation })),
       setViewMode: (viewMode) => set(() => ({ viewMode })),
       setHighlightQuery: (highlightQuery) => set(() => ({ highlightQuery, highlightCursor: 0, highlightCount: 0 })),
@@ -117,7 +114,6 @@ export const useViewerStore = create<ViewerState>()(
         set((s) => ({ isSidebarOpen: true, sidebarTab: "search", searchFocusNonce: s.searchFocusNonce + 1 })),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
       setSidebarTab: (sidebarTab) => set(() => ({ sidebarTab })),
-      setTheme: (theme) => set(() => ({ theme })),
       cycleTheme: () =>
         set((s) => ({ theme: s.theme === "system" ? "light" : s.theme === "light" ? "dark" : "system" })),
       resetView: () => set(() => ({ scale: 1, fitMode: "auto", rotation: 0 }))
